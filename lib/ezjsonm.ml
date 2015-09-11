@@ -27,7 +27,7 @@ type t =
   [ `A of value list
   | `O of (string * value) list ]
 
-let value: t -> value = fun t -> (t :> value)
+let value = fun t -> (t : [< t] :> [> value])
 
 exception Escape of ((int * int) * (int * int)) * Jsonm.error
 
@@ -77,7 +77,7 @@ let to_dst ?(minify=true) dst json =
   in
   let e = Jsonm.encoder ~minify dst in
   let finish e = ignore (Jsonm.encode e `End) in
-  t json finish e
+  t (json :> t) finish e
 
 let to_buffer ?minify buf json =
   to_dst ?minify (`Buffer buf) json
@@ -94,14 +94,14 @@ exception Parse_error of value * string
 
 let parse_error t fmt =
   Printf.kprintf (fun msg ->
-      raise (Parse_error (t, msg))
+      raise (Parse_error ((t :> value), msg))
     ) fmt
 
-let wrap t = `A [t]
+let wrap t = `A [ (t :> value) ]
 
-let unwrap = function
-  | `A [t] -> t
-  | v -> parse_error (v :> value) "Not unwrappable"
+let unwrap (v : [< t]) = match v with
+  | `A [t] -> (t : value :> [> value])
+  | `A _ | `O _ as v -> parse_error v "Not unwrappable"
 
 let string_of_error error =
   Jsonm.pp_error Format.str_formatter error;
@@ -120,22 +120,22 @@ let from_channel chan = from_src (`Channel chan)
 let unit () = `Null
 
 let get_unit = function
-  | `Null  -> ()
-  | j      -> parse_error j "Ezjsonm.get_unit"
+  | `Null       -> ()
+  | #value as j -> parse_error j "Ezjsonm.get_unit"
 
 (* bool *)
 let bool b = `Bool b
 
 let get_bool = function
-  | `Bool b -> b
-  | j       -> parse_error j "Ezjsonm.get_bool"
+  | `Bool b     -> b
+  | #value as j -> parse_error j "Ezjsonm.get_bool"
 
 (* string *)
 let string s = `String s
 
 let get_string = function
-  | `String s -> s
-  | j         -> parse_error j "Ezjsonm.get_string"
+  | `String s   -> s
+  | #value as j -> parse_error j "Ezjsonm.get_string"
 
 (* int *)
 let int i = `Float (float_of_int i)
@@ -143,31 +143,31 @@ let int32 i = `Float (Int32.to_float i)
 let int64 i = `Float (Int64.to_float i)
 
 let get_int = function
-  | `Float f -> int_of_float f
-  | j        -> parse_error j "Ezjsonm.get_int"
+  | `Float f    -> int_of_float f
+  | #value as j -> parse_error j "Ezjsonm.get_int"
 
 let get_int32 = function
-  | `Float f -> Int32.of_float f
-  | j        -> parse_error j "Ezjsonm.get_int"
+  | `Float f    -> Int32.of_float f
+  | #value as j -> parse_error j "Ezjsonm.get_int"
 
 let get_int64 = function
-  | `Float f -> Int64.of_float f
-  | j        -> parse_error j "Ezjsonm.get_int"
+  | `Float f    -> Int64.of_float f
+  | #value as j -> parse_error j "Ezjsonm.get_int"
 
 (* flooat *)
 let float f = `Float f
 
 let get_float = function
-  | `Float f -> f
-  | j        -> parse_error j "Ezjsonm.get_float"
+  | `Float f    -> f
+  | #value as j -> parse_error j "Ezjsonm.get_float"
 
 (* list *)
 let list fn l =
-  `A (List.map fn l)
+  `A (List.map fn l :> value list)
 
 let get_list fn = function
-  | `A ks -> List.map fn ks
-  | j     -> parse_error j "Ezjsonm.get_list"
+  | `A ks       -> List.map fn ks
+  | #value as j -> parse_error j "Ezjsonm.get_list"
 
 (* string lists *)
 let strings = list string
@@ -177,50 +177,50 @@ let get_strings = get_list get_string
 (* options *)
 let option fn = function
   | None   -> `Null
-  | Some x -> `A [fn x]
+  | Some x -> `A [(fn x :> value)]
 
 let get_option fn = function
-  | `Null  -> None
-  | `A [j] -> Some (fn j)
-  | j -> parse_error j "Ezjsonm.get_option"
+  | `Null       -> None
+  | `A [j]      -> Some (fn j)
+  | #value as j -> parse_error j "Ezjsonm.get_option"
 
 (* dict *)
-let dict d = `O d
+let dict d = `O (d :> (string * value) list)
 
 let get_dict = function
-  | `O d -> d
-  | j    -> parse_error j "Ezjsonm.get_dict"
+  | `O d        -> d
+  | #value as j -> parse_error j "Ezjsonm.get_dict"
 
 (* pairs *)
 let pair fk fv (k, v) =
-  `A [fk k; fv v]
+  `A [(fk k :> value); (fv v :> value)]
 
 let get_pair fk fv = function
-  | `A [k; v] -> (fk k, fv v)
-  | j         -> parse_error j "Ezjsonm.get_pair"
+  | `A [k; v]   -> (fk k, fv v)
+  | #value as j -> parse_error j "Ezjsonm.get_pair"
 
 (* triple *)
 
 let triple fa fb fc (a, b, c) =
-  `A [fa a; fb b; fc c]
+  `A [(fa a :> value); (fb b :> value); (fc c :> value)]
 
 let get_triple fa fb fc = function
   | `A [a; b; c] -> (fa a, fb b, fc c)
-  | j -> parse_error j "Ezjsonm.get_triple"
+  | #value as j  -> parse_error j "Ezjsonm.get_triple"
 
 let mem t path =
   let rec aux j p = match p, j with
     | []   , _    -> true
     | h::tl, `O o -> List.mem_assoc h o && aux (List.assoc h o) tl
     | _           -> false in
-  aux t path
+  aux (t :> value) path
 
 let find t path =
   let rec aux j p = match p, j with
     | []   , j    -> j
     | h::tl, `O o -> aux (List.assoc h o) tl
     | _           -> raise Not_found in
-  aux t path
+  (aux (t :> value) path : value :> [> value])
 
 let map_dict f dict label =
   let rec aux acc = function
@@ -240,17 +240,17 @@ let map_dict f dict label =
 
 let map f t path =
   let rec aux t = function
-    | []    -> f t
+    | []    -> (f t :> value option)
     | h::tl ->
       match t with
       | `O d -> Some (`O (map_dict (fun t -> aux t tl) d h))
       | j    -> None in
-  match aux t path with
+  match aux (t :> value) path with
   | None   -> raise Not_found
-  | Some j -> j
+  | Some j -> (j : value :> [> value])
 
 let update t path v =
-  map (fun _ -> v) t path
+  (map (fun _ -> (v :> value option)) (t :> value) path : value :> [>value])
 
 let is_valid_utf8 str =
   try
@@ -271,21 +271,23 @@ let encode_string str =
 let decode_string = function
   | `String str               -> Some str
   | `O [ "hex", `String str ] -> Some (Hex.to_string (`Hex str))
-  | j                         -> None
+  | #value                    -> None
 
 let decode_string_exn j =
   match decode_string j with
   | Some s -> s
   | None   -> parse_error j "Ezjsonm.decode_string_exn"
 
-let rec of_sexp = function
-  | Sexplib.Type.Atom x -> encode_string x
-  | Sexplib.Type.List l -> list of_sexp l
+let of_sexp s =
+  let rec aux = function
+    | Sexplib.Type.Atom x -> encode_string x
+    | Sexplib.Type.List l -> list aux l in
+  (aux s : value :> [> value])
 
-let rec to_sexp json =
+let rec to_sexp : 'a. ([< value] as 'a) -> _ = fun json ->
   match decode_string json with
   | Some s -> Sexplib.Type.Atom s
   | None   ->
     match json with
     | `A l -> Sexplib.Type.List (List.map to_sexp l)
-    | _    -> parse_error json "Ezjsonm.to_sexp"
+    | #value -> parse_error json "Ezjsonm.to_sexp"
